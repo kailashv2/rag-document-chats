@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Document Chat</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, sans-serif; background: #0f0f0f; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 40px 20px; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    p.sub { color: #888; margin-bottom: 40px; font-size: 14px; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 24px; width: 100%; max-width: 680px; margin-bottom: 20px; }
+    .card h2 { font-size: 16px; margin-bottom: 16px; color: #ccc; }
+    .upload-area { border: 2px dashed #333; border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; transition: border-color 0.2s; }
+    .upload-area:hover { border-color: #555; }
+    .upload-area input { display: none; }
+    .upload-area label { cursor: pointer; color: #888; font-size: 14px; }
+    .upload-area .filename { margin-top: 10px; color: #fff; font-size: 14px; }
+    .btn { background: #fff; color: #000; border: none; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; width: 100%; margin-top: 12px; transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-secondary { background: #2a2a2a; color: #fff; }
+    .status { font-size: 13px; margin-top: 10px; color: #888; text-align: center; min-height: 20px; }
+    .status.success { color: #4ade80; }
+    .status.error { color: #f87171; }
+    .chat-box { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; margin-bottom: 16px; }
+    .message { padding: 12px 16px; border-radius: 8px; font-size: 14px; line-height: 1.6; }
+    .message.user { background: #2a2a2a; align-self: flex-end; max-width: 80%; }
+    .message.ai { background: #1e3a2e; border: 1px solid #2d4a3e; max-width: 90%; }
+    .message.ai .label { font-size: 11px; color: #4ade80; margin-bottom: 6px; font-weight: 600; }
+    .input-row { display: flex; gap: 10px; }
+    .input-row input { flex: 1; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; color: #fff; font-size: 14px; outline: none; }
+    .input-row input:focus { border-color: #555; }
+    .input-row button { background: #fff; color: #000; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 500; cursor: pointer; font-size: 14px; }
+    .empty-chat { text-align: center; color: #444; font-size: 14px; padding: 40px 0; }
+    .thinking { color: #888; font-style: italic; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>📄 RAG Document Chat</h1>
+  <p class="sub">Upload a PDF and ask it anything</p>
+
+  <!-- Upload Card -->
+  <div class="card">
+    <h2>1. Upload your PDF</h2>
+    <div class="upload-area">
+      <input type="file" id="fileInput" accept=".pdf">
+      <label for="fileInput">Click to choose a PDF file</label>
+      <div class="filename" id="fileName"></div>
+    </div>
+    <button class="btn" id="uploadBtn" disabled>Upload & Process</button>
+    <div class="status" id="uploadStatus"></div>
+  </div>
+
+  <!-- Chat Card -->
+  <div class="card">
+    <h2>2. Ask anything about your document</h2>
+    <div class="chat-box" id="chatBox">
+      <div class="empty-chat">Upload a PDF to start chatting 💬</div>
+    </div>
+    <div class="input-row">
+      <input type="text" id="questionInput" placeholder="Ask a question..." disabled>
+      <button id="askBtn" disabled>Ask</button>
+    </div>
+  </div>
+
+  <script>
+    const API = 'http://127.0.0.1:8000';
+    let pdfReady = false;
+
+    const fileInput = document.getElementById('fileInput');
+    const fileName = document.getElementById('fileName');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const chatBox = document.getElementById('chatBox');
+    const questionInput = document.getElementById('questionInput');
+    const askBtn = document.getElementById('askBtn');
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) {
+        fileName.textContent = fileInput.files[0].name;
+        uploadBtn.disabled = false;
+      }
+    });
+
+    uploadBtn.addEventListener('click', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      uploadBtn.disabled = true;
+      uploadStatus.textContent = 'Processing...';
+      uploadStatus.className = 'status';
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`${API}/upload`, { method: 'POST', body: formData });
+        const data = await res.json();
+        uploadStatus.textContent = '✅ PDF ready! Start asking questions.';
+        uploadStatus.className = 'status success';
+        pdfReady = true;
+        questionInput.disabled = false;
+        askBtn.disabled = false;
+        chatBox.innerHTML = '';
+        questionInput.focus();
+      } catch (err) {
+        uploadStatus.textContent = '❌ Upload failed. Make sure the API is running.';
+        uploadStatus.className = 'status error';
+        uploadBtn.disabled = false;
+      }
+    });
+
+    async function askQuestion() {
+      const q = questionInput.value.trim();
+      if (!q || !pdfReady) return;
+      questionInput.value = '';
+      addMessage(q, 'user');
+      const thinking = addMessage('Thinking...', 'ai', true);
+      try {
+        const res = await fetch(`${API}/ask`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: q })
+        });
+        const data = await res.json();
+        thinking.remove();
+        addMessage(data.answer || data.error, 'ai');
+      } catch (err) {
+        thinking.remove();
+        addMessage('Error connecting to API. Make sure the server is running.', 'ai');
+      }
+    }
+
+    function addMessage(text, type, isThinking = false) {
+      const div = document.createElement('div');
+      div.className = `message ${type}${isThinking ? ' thinking' : ''}`;
+      if (type === 'ai' && !isThinking) {
+        div.innerHTML = `<div class="label">AI</div>${text}`;
+      } else {
+        div.textContent = text;
+      }
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return div;
+    }
+
+    askBtn.addEventListener('click', askQuestion);
+    questionInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') askQuestion();
+    });
+  </script>
+</body>
+</html>

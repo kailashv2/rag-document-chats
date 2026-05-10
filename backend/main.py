@@ -1,5 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import shutil
 import traceback
@@ -15,12 +17,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/static", StaticFiles(directory="../frontend"), name="static")
+
 class Question(BaseModel):
     question: str
 
 @app.get("/")
 def root():
     return {"message": "RAG API is running 🚀"}
+
+@app.get("/app")
+def serve_frontend():
+    return FileResponse("../frontend/index.html")
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
